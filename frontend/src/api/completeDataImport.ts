@@ -8,7 +8,6 @@ export interface CompleteDataImportOptions {
     fileKey: string
     fileName: string
     rawSheetName?: string
-    analysisSheetName?: string
   }>
 }
 
@@ -28,7 +27,6 @@ export interface CompleteDataImportPreviewFile {
   fileName: string
   sheetNames: string[]
   rawSheetName: string
-  analysisSheetName?: string
   totalRows: number
   classCount: number
   studentCount: number

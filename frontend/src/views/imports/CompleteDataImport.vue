@@ -110,7 +110,7 @@
                 <span class="text-xs text-gray-500">{{ sheetHint(slot) }}</span>
               </div>
 
-              <div v-if="previewFileForSlot(slot)" class="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              <div v-if="previewFileForSlot(slot)" class="grid grid-cols-1 gap-3">
                 <div>
                   <label class="mb-1 block text-xs font-medium text-gray-500">原始数据表</label>
                   <select v-model="slot.rawSheetName" :disabled="isImportLocked"
@@ -122,28 +122,12 @@
                     </option>
                   </select>
                 </div>
-                <div>
-                  <label class="mb-1 block text-xs font-medium text-gray-500">分析结果表</label>
-                  <select v-model="slot.analysisSheetName" :disabled="isImportLocked"
-                    class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    :class="{ 'cursor-not-allowed bg-gray-100 text-gray-500': isImportLocked }">
-                    <option value="">不导入分析表</option>
-                    <option v-for="sheetName in previewFileForSlot(slot)?.sheetNames || []"
-                      :key="`${slot.id}-analysis-${sheetName}`" :value="sheetName">
-                      {{ sheetName }}
-                    </option>
-                  </select>
-                </div>
               </div>
 
-              <div v-else class="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              <div v-else class="grid grid-cols-1 gap-3">
                 <select disabled
                   class="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-400">
                   <option>{{ slot.file ? '请先预检查读取工作表' : '请选择 Excel 文件' }}</option>
-                </select>
-                <select disabled
-                  class="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-400">
-                  <option>不导入分析表</option>
                 </select>
               </div>
 
@@ -300,7 +284,6 @@ interface CohortSlot {
   cohort: string
   file: File | null
   rawSheetName: string
-  analysisSheetName: string
 }
 
 interface FileProgressItem {
@@ -319,9 +302,9 @@ const importOptions = reactive({
 })
 
 const cohortSlots = ref<CohortSlot[]>([
-  { id: 'cohort-a', order: 1, cohort: currentYear.toString(), file: null, rawSheetName: '', analysisSheetName: '' },
-  { id: 'cohort-b', order: 2, cohort: (currentYear - 1).toString(), file: null, rawSheetName: '', analysisSheetName: '' },
-  { id: 'cohort-c', order: 3, cohort: (currentYear - 2).toString(), file: null, rawSheetName: '', analysisSheetName: '' }
+  { id: 'cohort-a', order: 1, cohort: currentYear.toString(), file: null, rawSheetName: '' },
+  { id: 'cohort-b', order: 2, cohort: (currentYear - 1).toString(), file: null, rawSheetName: '' },
+  { id: 'cohort-c', order: 3, cohort: (currentYear - 2).toString(), file: null, rawSheetName: '' }
 ])
 
 const previewing = ref(false)
@@ -497,8 +480,7 @@ const importRequestOptions = computed(() => ({
   sheetSelections: selectedSlots.value.map((slot, index) => ({
     fileKey: getSlotFileKey(slot, index),
     fileName: slot.file!.name,
-    rawSheetName: slot.rawSheetName,
-    analysisSheetName: slot.analysisSheetName
+    rawSheetName: slot.rawSheetName
   }))
 }))
 
@@ -512,7 +494,6 @@ const handleSlotFileChange = (slotId: string, event: Event) => {
   if (slot) {
     slot.file = file
     slot.rawSheetName = ''
-    slot.analysisSheetName = ''
   }
 
   resetPreviewState()
@@ -641,7 +622,6 @@ const applyDetectedSheets = () => {
     if (!previewFile) return
 
     slot.rawSheetName = previewFile.rawSheetName
-    slot.analysisSheetName = previewFile.analysisSheetName || ''
   })
 }
 
@@ -977,8 +957,7 @@ const clearImportState = () => {
   cohortSlots.value = cohortSlots.value.map(slot => ({
     ...slot,
     file: null,
-    rawSheetName: '',
-    analysisSheetName: ''
+    rawSheetName: ''
   }))
   resetPreviewState()
 }

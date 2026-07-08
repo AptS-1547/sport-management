@@ -12,6 +12,13 @@ import {
   StudentClassRelation,
 } from "../models/index.js";
 import { defaultTestItems } from "../config/defaultTestItems.js";
+import {
+  calculateBatchScores,
+  calculateBMI,
+  calculateGradeLevel,
+  calculateTotalScore,
+} from "../utils/scoreCalculator.js";
+import { calculateGradeLevel as calculateStudentGradeLevel } from "../utils/gradeHelper.js";
 import { hashPassword } from "../utils/password.js";
 import { normalizeClassName } from "../utils/classNameFormatter.js";
 
@@ -32,26 +39,12 @@ const rawToItemCode: Record<string, string> = {
   引体向上: "pullup",
 };
 
-const scoreToItemCode: Record<string, string> = {
-  BMI得分: "bmi",
-  肺活量: "lung_capacity",
-  "50米跑": "sprint_50m",
-  立定跳远: "standing_jump",
-  坐位体前屈: "sit_reach",
-  "800米跑": "run_800m",
-  "1000米跑": "run_1000m",
-  一分钟仰卧起坐: "situp_1min",
-  引体向上: "pullup",
-};
-
 interface ParsedCompleteDataFile {
   fileKey: string;
   fileName: string;
   sheetNames: string[];
   rawSheetName: string;
-  analysisSheetName?: string;
   rawRows: any[];
-  analysisByStudentId: Map<string, any>;
   warnings: string[];
 }
 
@@ -65,7 +58,6 @@ interface SheetSelection {
   fileKey: string;
   fileName: string;
   rawSheetName?: string;
-  analysisSheetName?: string;
 }
 
 class CompleteDataImportBadRequestError extends Error {
@@ -432,19 +424,6 @@ const mapGender = (value: unknown): "male" | "female" | null => {
   return null;
 };
 
-const mapGradeLevel = (
-  value: unknown,
-): "excellent" | "good" | "pass" | "fail" | null => {
-  const text = value == null ? "" : value.toString().trim();
-  const map: Record<string, "excellent" | "good" | "pass" | "fail"> = {
-    优秀: "excellent",
-    良好: "good",
-    及格: "pass",
-    不及格: "fail",
-  };
-  return map[text] || null;
-};
-
 const buildTestData = (row: any): Record<string, number> => {
   const testData: Record<string, number> = {};
 
@@ -463,20 +442,6 @@ const buildTestData = (row: any): Record<string, number> => {
   }
 
   return testData;
-};
-
-const buildScores = (analysisRow?: any): Record<string, number> | null => {
-  if (!analysisRow) return null;
-
-  const scores: Record<string, number> = {};
-  for (const [column, itemCode] of Object.entries(scoreToItemCode)) {
-    const value = parseNumber(analysisRow[column]);
-    if (value !== null) {
-      scores[itemCode] = value;
-    }
-  }
-
-  return Object.keys(scores).length > 0 ? scores : null;
 };
 
 const findSheetName = (
@@ -510,15 +475,6 @@ const parseCompleteDataFile = (
       ? selection.rawSheetName
       : findSheetName(workbook, ["班级名称", "学籍号", "姓名"]) ||
         workbook.SheetNames[0];
-  const analysisSheetName =
-    selection?.analysisSheetName &&
-    workbook.SheetNames.includes(selection.analysisSheetName)
-      ? selection.analysisSheetName
-      : findSheetName(
-          workbook,
-          ["学籍号", "综合成绩", "综合等级"],
-          rawSheetName,
-        );
 
   if (!rawSheetName) {
     throw new Error(`${fileName} 未找到可导入的工作表`);
@@ -527,34 +483,14 @@ const parseCompleteDataFile = (
   const rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[rawSheetName], {
     defval: "",
   }) as any[];
-  const analysisRows = analysisSheetName
-    ? (XLSX.utils.sheet_to_json(workbook.Sheets[analysisSheetName], {
-        defval: "",
-      }) as any[])
-    : [];
-
-  const analysisByStudentId = new Map<string, any>();
-  for (const row of analysisRows) {
-    const studentId = normalizeStudentId(row["学籍号"]);
-    if (studentId) {
-      analysisByStudentId.set(studentId, row);
-    }
-  }
-
-  const warnings: string[] = [];
-  if (!analysisSheetName) {
-    warnings.push("未找到分析结果工作表，将只导入原始体测数据");
-  }
 
   return {
     fileKey,
     fileName,
     sheetNames: workbook.SheetNames,
     rawSheetName,
-    analysisSheetName,
     rawRows,
-    analysisByStudentId,
-    warnings,
+    warnings: [],
   };
 };
 
@@ -580,13 +516,6 @@ const summarizeFile = (parsed: ParsedCompleteDataFile) => {
       duplicateStudentIds.add(studentId);
     if (studentId) studentIds.add(studentId);
     if (classInfo) classes.add(`${classInfo.cohort}${classInfo.className}`);
-    if (
-      studentId &&
-      parsed.analysisSheetName &&
-      !parsed.analysisByStudentId.has(studentId)
-    ) {
-      issues.push({ row: rowNumber, message: "未找到对应分析结果行" });
-    }
   });
 
   return {
@@ -594,7 +523,6 @@ const summarizeFile = (parsed: ParsedCompleteDataFile) => {
     fileName: parsed.fileName,
     sheetNames: parsed.sheetNames,
     rawSheetName: parsed.rawSheetName,
-    analysisSheetName: parsed.analysisSheetName,
     totalRows: parsed.rawRows.length,
     classCount: classes.size,
     studentCount: studentIds.size,
@@ -738,6 +666,19 @@ const importParsedFiles = async (
     throwIfImportCanceled(context);
     const formId = form.get("id") as number;
     results.formId = formId;
+    const testItems = await FormTestItem.findAll({
+      where: { formId },
+      transaction,
+    });
+    const plainTestItems = testItems.map((item) =>
+      item.get({ plain: true }),
+    ) as Array<{
+      itemCode: string;
+      itemName?: string;
+      genderLimit?: "male" | "female" | null;
+      weight?: number;
+      scoringStandard?: any;
+    }>;
 
     const classCache = new Map<string, any>();
 
@@ -874,32 +815,50 @@ const importParsedFiles = async (
           results.relationsUpserted++;
           throwIfImportCanceled(context);
 
-          const analysisRow = parsed.analysisByStudentId.get(studentIdNational);
-          if (!analysisRow) {
-            results.warnings.push({
-              fileName: parsed.fileName,
-              row: rowNumber,
-              message: "未找到对应分析结果行，记录将不包含分析分数",
-            });
-          }
-
           const existingRecord = await PhysicalTestRecord.findOne({
             where: { formId, studentId },
             transaction,
           });
 
+          const testData = buildTestData(row);
+          if (testData.height !== undefined && testData.weight !== undefined) {
+            try {
+              testData.bmi = calculateBMI(
+                Number(testData.height),
+                Number(testData.weight),
+              );
+            } catch (error: any) {
+              results.warnings.push({
+                fileName: parsed.fileName,
+                row: rowNumber,
+                message: `BMI 计算失败: ${error.message}`,
+              });
+            }
+          }
+          const studentGradeLevel = calculateStudentGradeLevel(
+            classInfo.cohort,
+            options.academicYear,
+          );
+          const applicableItems = plainTestItems.filter(
+            (item) => item.genderLimit == null || item.genderLimit === gender,
+          );
+          const scores = calculateBatchScores(
+            testData,
+            applicableItems,
+            gender,
+            studentGradeLevel,
+          );
+          const totalScore = calculateTotalScore(scores, applicableItems);
+          const gradeLevel = calculateGradeLevel(totalScore);
+
           const recordPayload = {
             formId,
             studentId,
             classId,
-            testData: buildTestData(row),
-            scores: buildScores(analysisRow),
-            totalScore: analysisRow
-              ? parseNumber(analysisRow["综合成绩"])
-              : null,
-            gradeLevel: analysisRow
-              ? mapGradeLevel(analysisRow["综合等级"])
-              : null,
+            testData,
+            scores,
+            totalScore,
+            gradeLevel,
             submittedBy: "完整数据导入",
             submittedAt: new Date(),
           };
