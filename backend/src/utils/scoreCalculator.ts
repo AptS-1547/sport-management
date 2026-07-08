@@ -65,6 +65,15 @@ export const calculateBMI = (height: number, weight: number): number => {
   return Math.round(bmi * 100) / 100;
 };
 
+const calculateRawBMI = (height: number, weight: number): number => {
+  if (height <= 0 || weight <= 0) {
+    throw new Error('身高和体重必须大于0');
+  }
+
+  const heightInMeters = height / 100;
+  return weight / (heightInMeters * heightInMeters);
+};
+
 /**
  * 根据评分标准计算单项分数
  * @param value 测试值（数字或时间字符串）
@@ -265,7 +274,12 @@ export const calculateBatchScores = (
   const scores: Record<string, number | null> = {};
 
   for (const item of testItems) {
-    const value = testData[item.itemCode];
+    const height = Number(testData.height);
+    const weight = Number(testData.weight);
+    const value =
+      item.itemCode === 'bmi' && Number.isFinite(height) && Number.isFinite(weight)
+        ? calculateRawBMI(height, weight)
+        : testData[item.itemCode];
 
     try {
       scores[item.itemCode] = calculateScore(value, item.scoringStandard, gender, gradeLevel);
