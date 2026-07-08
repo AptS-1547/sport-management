@@ -15,22 +15,24 @@ const app: Application = express();
 // 中间件
 // 配置 helmet，允许加载静态资源
 app.use(
-  helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:", "blob:", "https:"],
-        connectSrc: ["'self'"],
-        fontSrc: ["'self'", "data:"],
-        objectSrc: ["'none'"],
-        mediaSrc: ["'self'"],
-        frameSrc: ["'none'"],
-      },
-    },
-    crossOriginEmbedderPolicy: false,
-  }),
+	helmet({
+		contentSecurityPolicy: {
+			useDefaults: false,
+			directives: {
+				defaultSrc: ["'self'"],
+				scriptSrc: ["'self'", "'unsafe-inline'"],
+				styleSrc: ["'self'", "'unsafe-inline'"],
+				imgSrc: ["'self'", "data:", "blob:", "https:"],
+				connectSrc: ["'self'"],
+				fontSrc: ["'self'", "data:"],
+				objectSrc: ["'none'"],
+				mediaSrc: ["'self'"],
+				frameSrc: ["'none'"],
+			},
+		},
+		crossOriginEmbedderPolicy: false,
+		strictTransportSecurity: false,
+	}),
 );
 app.use(cors(config.cors));
 app.use(
