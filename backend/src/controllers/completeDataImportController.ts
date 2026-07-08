@@ -579,6 +579,36 @@ const ensureCompleteDataForm = async (
       })),
       { transaction },
     );
+  } else {
+    const formId = form.get("id") as number;
+    for (const item of defaultTestItems) {
+      const payload = {
+        itemName: item.itemName,
+        itemUnit: item.itemUnit,
+        genderLimit: item.genderLimit,
+        isRequired: item.isRequired,
+        sortOrder: item.sortOrder,
+        weight: item.weight || 0,
+        scoringStandard: item.scoringStandard,
+        validationRules: item.validationRules,
+        isCalculated: item.isCalculated || false,
+      };
+      const [updatedCount] = await FormTestItem.update(payload, {
+        where: { formId, itemCode: item.itemCode },
+        transaction,
+      });
+
+      if (updatedCount === 0) {
+        await FormTestItem.create(
+          {
+            ...payload,
+            formId,
+            itemCode: item.itemCode,
+          },
+          { transaction },
+        );
+      }
+    }
   }
 
   return form;

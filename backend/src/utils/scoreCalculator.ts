@@ -9,6 +9,8 @@ type GradeLevel = 'excellent' | 'good' | 'pass' | 'fail';
 interface ScoreRange {
   min?: number | string;
   max?: number | string;
+  exclusiveMin?: number | string;
+  exclusiveMax?: number | string;
   score: number;
 }
 
@@ -20,14 +22,23 @@ interface ScoringStandard {
   [key: string]: any;
 }
 
+interface NormalizedScoreRange {
+  score: number;
+  min?: number;
+  max?: number;
+  exclusiveMin?: number;
+  exclusiveMax?: number;
+}
+
 /**
  * 时间字符串转换为秒数
- * 支持格式：'3:24' 或 '3:24.5'
+ * 支持格式：'3:24'、'3'24' 或 '3:24.5'
  * @param timeStr 时间字符串
  * @returns 秒数
  */
 export const timeToSeconds = (timeStr: string): number => {
-  const parts = timeStr.split(':');
+  const normalizedTimeStr = timeStr.replace(/[：']/g, ':').replace(/"$/, '');
+  const parts = normalizedTimeStr.split(':');
   if (parts.length !== 2) {
     throw new Error(`无效的时间格式: ${timeStr}`);
   }
@@ -143,44 +154,90 @@ const matchRanges = (
     }
   }
 
+  const toNumericBound = (bound: number | string | undefined): number | undefined => {
+    if (bound === undefined) return undefined;
+
+    if (type === 'time' && typeof bound === 'string') {
+      return timeToSeconds(bound);
+    }
+
+    return typeof bound === 'number' ? bound : parseFloat(bound);
+  };
+
+  const normalizedRanges = ranges
+    .map((range) => {
+      try {
+        const normalizedRange: NormalizedScoreRange = {
+          score: range.score,
+          min: toNumericBound(range.min),
+          max: toNumericBound(range.max),
+          exclusiveMin: toNumericBound(range.exclusiveMin),
+          exclusiveMax: toNumericBound(range.exclusiveMax),
+        };
+        return normalizedRange;
+      } catch {
+        return null;
+      }
+    })
+    .filter((range): range is NormalizedScoreRange => range !== null && typeof range.score === 'number');
+
   // 遍历评分区间
-  for (const range of ranges) {
-    let { min, max, score } = range;
-
-    // 转换min和max为数字（如果是时间字符串）
-    let numericMin: number | undefined;
-    let numericMax: number | undefined;
-
-    if (min !== undefined) {
-      if (type === 'time' && typeof min === 'string') {
-        try {
-          numericMin = timeToSeconds(min);
-        } catch {
-          continue;
-        }
-      } else {
-        numericMin = typeof min === 'number' ? min : parseFloat(min as string);
-      }
-    }
-
-    if (max !== undefined) {
-      if (type === 'time' && typeof max === 'string') {
-        try {
-          numericMax = timeToSeconds(max);
-        } catch {
-          continue;
-        }
-      } else {
-        numericMax = typeof max === 'number' ? max : parseFloat(max as string);
-      }
-    }
-
-    // 检查值是否在区间内
-    const minMatch = numericMin === undefined || numericValue >= numericMin;
-    const maxMatch = numericMax === undefined || numericValue <= numericMax;
+  for (const range of normalizedRanges) {
+    const minMatch =
+      range.exclusiveMin !== undefined
+        ? numericValue > range.exclusiveMin
+        : range.min === undefined || numericValue >= range.min;
+    const maxMatch =
+      range.exclusiveMax !== undefined
+        ? numericValue < range.exclusiveMax
+        : range.max === undefined || numericValue <= range.max;
 
     if (minMatch && maxMatch) {
-      return score;
+      return range.score;
+    }
+  }
+
+  // 部分国标项目按 0.1 或整数列出阈值，但导入值可能有更多小数。
+  // 对单调评分表，按阈值连续区间兜底，避免 13.51 落在 13.5/13.6 的空档。
+  const isScoreNonIncreasing = normalizedRanges.every((range, index) => {
+    return index === 0 || normalizedRanges[index - 1].score >= range.score;
+  });
+
+  if (isScoreNonIncreasing && normalizedRanges.length > 1) {
+    const firstRange = normalizedRanges[0];
+    const lastRange = normalizedRanges[normalizedRanges.length - 1];
+
+    const isHigherBetter =
+      firstRange.min !== undefined &&
+      firstRange.max === undefined &&
+      lastRange.max !== undefined &&
+      lastRange.min === undefined;
+    const isLowerBetter =
+      firstRange.max !== undefined &&
+      firstRange.min === undefined &&
+      lastRange.min !== undefined &&
+      lastRange.max === undefined;
+
+    if (isHigherBetter) {
+      for (const range of normalizedRanges) {
+        if (range.min !== undefined && numericValue >= range.min) {
+          return range.score;
+        }
+        if (range.min === undefined && range.max !== undefined && numericValue <= range.max) {
+          return range.score;
+        }
+      }
+    }
+
+    if (isLowerBetter) {
+      for (const range of normalizedRanges) {
+        if (range.max !== undefined && numericValue <= range.max) {
+          return range.score;
+        }
+        if (range.max === undefined && range.min !== undefined && numericValue >= range.min) {
+          return range.score;
+        }
+      }
     }
   }
 
