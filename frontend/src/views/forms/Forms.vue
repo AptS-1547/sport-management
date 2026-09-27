@@ -6,6 +6,7 @@ import { useClassesStore } from '@/stores/classes'
 import { useSettingsStore } from '@/stores'
 import { useToast } from '@/composables/useToast'
 import Modal from '@/components/common/Modal.vue'
+import RawDataExportDialog from '@/components/forms/RawDataExportDialog.vue'
 import Input from '@/components/common/Input.vue'
 import Select from '@/components/common/Select.vue'
 import Button from '@/components/common/Button.vue'
@@ -30,7 +31,8 @@ import {
   EyeIcon,
   CheckCircleIcon,
   XCircleIcon,
-  Cog6ToothIcon
+  Cog6ToothIcon,
+  ArrowDownTrayIcon
 } from '@heroicons/vue/24/outline'
 
 // Stores
@@ -46,6 +48,8 @@ const searchYear = ref('')
 const filterStatus = ref<FormStatus | ''>('')
 const currentPage = ref(1)
 const pageSize = ref(10)
+const showExportModal = ref(false)
+const exportForm = ref<PhysicalTestForm | null>(null)
 
 // Form Modal
 const showFormModal = ref(false)
@@ -165,6 +169,11 @@ const handlePageSizeChange = (size: number) => {
   pageSize.value = size
   currentPage.value = 1
   loadForms()
+}
+
+const handleExportRawData = (form: PhysicalTestForm) => {
+  exportForm.value = form
+  showExportModal.value = true
 }
 
 // 下拉菜单控制
@@ -539,6 +548,15 @@ onMounted(() => {
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                   <button
+                    class="text-teal-700 hover:text-teal-900 disabled:opacity-50"
+                    title="导出原始数据"
+                    aria-label="导出原始数据"
+                    @click="handleExportRawData(form)"
+                  >
+                    <ArrowDownTrayIcon class="h-5 w-5" />
+                  </button>
+
+                  <button
                     class="text-blue-600 hover:text-blue-900"
                     :title="form.status === 'draft' ? '配置测试项目' : '查看测试项目'"
                     @click="openTestItemsModal(form.id, form.status)"
@@ -599,6 +617,8 @@ onMounted(() => {
         />
       </div>
     </div>
+
+    <RawDataExportDialog v-model="showExportModal" :form="exportForm" />
 
     <!-- Form Modal -->
     <Modal

@@ -29,6 +29,14 @@ router.get('/:id', formController.getById);
 router.get('/:id/items', formController.getTestItems);
 
 /**
+ * @route   GET /api/forms/:id/export-raw
+ * @desc    导出表单的原始测试数据
+ * @access  Admin + Teacher
+ */
+router.get('/:id/export-raw', requireTeacher, formController.exportRawData);
+router.get('/:id/export-raw/grades', requireTeacher, formController.getRawDataExportGrades);
+
+/**
  * @route   POST /api/forms
  * @desc    创建表单（同时创建默认国标测试项目）
  * @access  Admin + Teacher

@@ -10,6 +10,12 @@ import type {
   UpdateFormTestItemRequest
 } from '@/types'
 
+export interface RawDataExportGrade {
+  gradeLevel: number
+  cohort: string
+  recordCount: number
+}
+
 /**
  * 表单管理 API
  */
@@ -82,6 +88,28 @@ const formsAPI = {
    */
   getTestItems(id: number): Promise<FormTestItem[]> {
     return http.get(`/forms/${id}/items`)
+  },
+
+  getRawDataExportGrades(id: number): Promise<RawDataExportGrade[]> {
+    return http.get(`/forms/${id}/export-raw/grades`)
+  },
+
+  /** 单选返回 XLSX，多选返回包含独立 XLSX 的 ZIP。 */
+  async exportRawData(id: number, grades: number[]): Promise<Blob> {
+    try {
+      return await http.get(`/forms/${id}/export-raw`, {
+        params: { grades: grades.join(',') },
+        responseType: 'blob',
+        timeout: 60000
+      })
+    } catch (error) {
+      const responseData = (error as Error & { responseData?: unknown }).responseData
+      if (responseData instanceof Blob && responseData.type.includes('json')) {
+        const message = JSON.parse(await responseData.text()) as { error?: string }
+        if (message.error) throw new Error(message.error)
+      }
+      throw error
+    }
   },
 
   /**
