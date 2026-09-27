@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { Bar, Line, Doughnut, Radar } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -21,13 +21,20 @@ import Card from '@/components/common/Card.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import Button from '@/components/common/Button.vue'
 import Loading from '@/components/common/Loading.vue'
+import StudentHistorySearch from '@/components/statistics/StudentHistorySearch.vue'
 import statisticsAPI from '@/api/statistics'
 import formsAPI from '@/api/forms'
 import classesAPI from '@/api/classes'
 import { useToast } from '@/composables/useToast'
 import { formatHighSchoolClassName, formatSchoolGradeName } from '@/utils/classNameFormatter'
 import { useSettingsStore } from '@/stores'
-import type { StatisticsSummaryResponse, PhysicalTestForm, Class } from '@/types'
+import type {
+  StatisticsSummaryResponse,
+  StudentHistoryResponse,
+  PhysicalTestForm,
+  Student,
+  Class
+} from '@/types'
 import {
   ChartBarIcon,
   AcademicCapIcon,
@@ -95,10 +102,11 @@ const appliedFilters = reactive({
 })
 
 const studentHistory = reactive({
-  studentId: '',
+  selectedStudent: null as Student | null,
   loading: false,
-  data: null as any
+  data: null as StudentHistoryResponse | null
 })
+let studentHistoryRequestVersion = 0
 
 const formOptions = computed<SelectOption[]>(() => {
   return forms.value.map(form => ({
@@ -118,13 +126,11 @@ const selectedForm = computed(() => forms.value.find(form => Number(form.id) ===
 
 const availableCohortsForForm = computed(() => {
   const form = selectedForm.value
+  if (!form) return []
+
   const cohorts = new Set<string>()
 
-  classes.value.forEach(cls => {
-    if (cls.cohort) cohorts.add(String(cls.cohort))
-  })
-
-  form?.participatingCohorts?.forEach(cohort => {
+  form.participatingCohorts?.forEach(cohort => {
     if (cohort) cohorts.add(String(cohort))
   })
 
@@ -140,9 +146,11 @@ const gradeOptions = computed<SelectOption[]>(() => {
 })
 
 const classOptions = computed<SelectOption[]>(() => {
+  if (!selectedForm.value) return []
+
   const cohorts = new Set(availableCohortsForForm.value.map(String))
   return classes.value
-    .filter(cls => !selectedForm.value || cohorts.has(String(cls.cohort)))
+    .filter(cls => cohorts.has(String(cls.cohort)))
     .map(cls => ({
       label: formatHighSchoolClassName(cls.cohort, cls.className, schoolLevelLabel.value),
       value: cls.id
@@ -555,21 +563,27 @@ const queryStats = async () => {
   }
 }
 
-const queryStudentHistory = async () => {
-  if (!studentHistory.studentId) {
-    toast.warning('请输入学生ID')
-    return
-  }
-
+const queryStudentHistory = async (student: Student) => {
+  const requestVersion = ++studentHistoryRequestVersion
+  studentHistory.selectedStudent = student
   studentHistory.loading = true
+  studentHistory.data = null
+
   try {
-    studentHistory.data = await statisticsAPI.getStudentHistory(Number(studentHistory.studentId))
+    const response = await statisticsAPI.getStudentHistory(student.id)
+    if (requestVersion !== studentHistoryRequestVersion) return
+
+    studentHistory.data = response
     toast.success('学生历史数据加载成功')
   } catch (error: any) {
+    if (requestVersion !== studentHistoryRequestVersion) return
+
     toast.error(error.message || '查询学生历史数据失败')
     studentHistory.data = null
   } finally {
-    studentHistory.loading = false
+    if (requestVersion === studentHistoryRequestVersion) {
+      studentHistory.loading = false
+    }
   }
 }
 
@@ -586,6 +600,10 @@ watch(() => filters.formId, () => {
 
 onMounted(() => {
   loadFormAndClassData()
+})
+
+onBeforeUnmount(() => {
+  studentHistoryRequestVersion += 1
 })
 </script>
 
@@ -850,20 +868,21 @@ onMounted(() => {
 
     <Card title="学生历史成绩查询">
       <div class="space-y-4">
-        <div class="flex gap-4">
-          <input
-            v-model="studentHistory.studentId"
-            type="text"
-            placeholder="请输入学生ID"
-            class="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            @keyup.enter="queryStudentHistory"
+        <StudentHistorySearch @select="queryStudentHistory" />
+
+        <div
+          v-if="studentHistory.loading"
+          class="flex justify-center py-8"
+          role="status"
+          aria-live="polite"
+        >
+          <Loading
+            size="sm"
+            :text="`正在加载 ${studentHistory.selectedStudent?.name || '学生'} 的历史成绩`"
           />
-          <Button variant="primary" @click="queryStudentHistory" :disabled="studentHistory.loading">
-            {{ studentHistory.loading ? '查询中...' : '查询' }}
-          </Button>
         </div>
 
-        <div v-if="studentHistory.data" class="space-y-4">
+        <div v-else-if="studentHistory.data" class="space-y-4">
           <div class="rounded-lg bg-gray-50 p-4">
             <h4 class="mb-2 text-sm font-semibold text-gray-700">学生信息</h4>
             <div class="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
@@ -877,6 +896,9 @@ onMounted(() => {
           <div v-if="studentHistory.data.history?.length" class="h-80">
             <Line :data="studentHistoryData" :options="trendOptions" />
           </div>
+          <p v-else class="border-l-2 border-gray-200 py-2 pl-3 text-sm text-gray-500">
+            暂无历史成绩
+          </p>
         </div>
       </div>
     </Card>

@@ -118,6 +118,7 @@ export interface UpdateStudentRequest {
 
 // 学生查询参数
 export interface StudentQueryParams extends PaginationParams, SortParams {
+  search?: string;
   name?: string;
   gender?: Gender;
   studentIdNational?: string;
