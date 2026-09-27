@@ -212,6 +212,13 @@ export const createOrUpdateRecord = async (req: Request, res: Response) => {
     if (classInfo) {
       studentGradeLevel = calculateStudentGradeLevel(classInfo.cohort, form.academicYear);
     }
+    if (studentGradeLevel === null || studentGradeLevel > 3) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: '该班级入学级与表单学年不匹配，无法按高中评分标准计算'
+      });
+    }
 
     // 计算各项分数（传入学生性别和年级）
     const scores = calculateBatchScores(testData, applicableItems, student.gender, studentGradeLevel);
@@ -335,6 +342,11 @@ export const batchCreateOrUpdateRecords = async (req: Request, res: Response) =>
       if (classInfo) {
         studentGradeLevel = calculateStudentGradeLevel(classInfo.cohort, form.academicYear);
       }
+      if (studentGradeLevel === null || studentGradeLevel > 3) {
+        const error = new Error('该班级入学级与表单学年不匹配，无法按高中评分标准计算');
+        (error as any).statusCode = 400;
+        throw error;
+      }
 
       // 自动计算BMI（如果提供了身高和体重）
       if (testData.height && testData.weight) {
@@ -388,7 +400,7 @@ export const batchCreateOrUpdateRecords = async (req: Request, res: Response) =>
   } catch (error: any) {
     await transaction.rollback();
     console.error('批量保存体测记录失败:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       message: '批量保存失败',
       error: error.message

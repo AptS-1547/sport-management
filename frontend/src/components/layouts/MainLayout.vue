@@ -36,7 +36,11 @@ const contentPadding = computed(() => {
     <!-- 主内容区 -->
     <main :class="['pt-16 transition-all duration-300', contentPadding]">
       <div class="p-6">
-        <router-view />
+        <router-view v-slot="{ Component }">
+          <KeepAlive include="CompleteDataImport">
+            <component :is="Component" />
+          </KeepAlive>
+        </router-view>
       </div>
     </main>
   </div>

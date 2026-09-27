@@ -1,5 +1,4 @@
 import { Request, Response } from "express";
-import { randomUUID } from "node:crypto";
 import { Op } from "sequelize";
 import * as XLSX from "xlsx";
 import sequelize from "../database/connection.js";
@@ -13,6 +12,10 @@ import {
 } from "../models/index.js";
 import { defaultTestItems } from "../config/defaultTestItems.js";
 import {
+  DEFAULT_COMPLETE_DATA_FORM_NAME,
+  resolveCompleteDataImportYear,
+} from "../utils/completeDataImportYear.js";
+import {
   calculateBatchScores,
   calculateBMI,
   calculateGradeLevel,
@@ -21,10 +24,22 @@ import {
 import { calculateGradeLevel as calculateStudentGradeLevel } from "../utils/gradeHelper.js";
 import { hashPassword } from "../utils/password.js";
 import { normalizeClassName } from "../utils/classNameFormatter.js";
+import {
+  CompleteDataImportCanceledError,
+  completeDataImportJobs,
+  createCompleteDataImportJob,
+  createImportContext,
+  scheduleJobCleanup,
+  throwIfImportCanceled,
+  toJobSnapshot,
+  updateJobProgress,
+  type ImportContext,
+} from "../utils/completeDataImportJob.js";
 
-const DEFAULT_FORM_NAME = "2024学年完整体质测试数据";
-const DEFAULT_ACADEMIC_YEAR = "2024";
-const DEFAULT_COHORTS = ["2024", "2023", "2022"];
+export {
+  cancelImportJob,
+  getImportJobStatus,
+} from "../utils/completeDataImportJob.js";
 
 const rawToItemCode: Record<string, string> = {
   身高: "height",
@@ -45,13 +60,13 @@ interface ParsedCompleteDataFile {
   sheetNames: string[];
   rawSheetName: string;
   rawRows: any[];
+  detectedCohorts: string[];
   warnings: string[];
 }
 
 interface ImportOptions {
   formName: string;
   academicYear: string;
-  participatingCohorts: string[];
 }
 
 interface SheetSelection {
@@ -77,192 +92,23 @@ class CompleteDataImportValidationError extends Error {
   }
 }
 
-class CompleteDataImportCanceledError extends Error {
-  constructor() {
-    super("完整数据导入已取消，已回滚本次导入");
-    this.name = "CompleteDataImportCanceledError";
-  }
-}
-
-interface ImportContext {
-  isCanceled: () => boolean;
-  reportProgress?: (progress: ImportProgressUpdate) => void;
-}
-
-interface ImportProgressUpdate {
-  totalRows: number;
-  processedRows: number;
-  fileProgresses?: ImportFileProgress[];
-  currentFileKey?: string;
-  currentFileName?: string;
-  currentRow?: number;
-  message?: string;
-}
-
-interface ImportFileProgress {
-  fileKey: string;
-  fileName: string;
-  totalRows: number;
-  processedRows: number;
-  progress: number;
-}
-
-type CompleteDataImportJobStatus =
-  | "queued"
-  | "running"
-  | "completed"
-  | "failed"
-  | "canceling"
-  | "canceled";
-
-interface CompleteDataImportJob {
-  id: string;
-  status: CompleteDataImportJobStatus;
-  phase: "queued" | "importing" | "completed" | "failed" | "canceled";
-  files: string[];
-  fileProgresses: ImportFileProgress[];
-  totalRows: number;
-  processedRows: number;
-  progress: number;
-  startedAt: string;
-  updatedAt: string;
-  completedAt?: string;
-  estimatedSecondsRemaining: number | null;
-  currentFileKey?: string;
-  currentFileName?: string;
-  currentRow?: number;
-  message: string;
-  cancelRequested: boolean;
-  result?: unknown;
-  error?: string;
-}
-
-const completeDataImportJobs = new Map<string, CompleteDataImportJob>();
-
-const toJobSnapshot = (job: CompleteDataImportJob) => {
-  const { cancelRequested, ...snapshot } = job;
-  return snapshot;
-};
-
-const updateJobProgress = (
-  job: CompleteDataImportJob,
-  update: Partial<CompleteDataImportJob> & {
-    processedRows?: number;
-    totalRows?: number;
-  },
-) => {
-  Object.assign(job, update);
-  job.updatedAt = new Date().toISOString();
-
-  if (job.totalRows > 0) {
-    job.progress = Math.min(
-      100,
-      Math.round((job.processedRows / job.totalRows) * 100),
-    );
-  }
-
-  if (
-    job.status === "running" &&
-    job.processedRows > 0 &&
-    job.processedRows < job.totalRows
-  ) {
-    const elapsedSeconds = (Date.now() - Date.parse(job.startedAt)) / 1000;
-    const rowsPerSecond =
-      elapsedSeconds > 0 ? job.processedRows / elapsedSeconds : 0;
-    job.estimatedSecondsRemaining =
-      rowsPerSecond > 0
-        ? Math.ceil((job.totalRows - job.processedRows) / rowsPerSecond)
-        : null;
-  } else {
-    job.estimatedSecondsRemaining = null;
-  }
-};
-
-const createCompleteDataImportJob = (files: ParsedCompleteDataFile[]) => {
-  const now = new Date().toISOString();
-  const job: CompleteDataImportJob = {
-    id: randomUUID(),
-    status: "queued",
-    phase: "queued",
-    files: files.map((file) => file.fileName),
-    fileProgresses: files.map((file) => ({
-      fileKey: file.fileKey,
-      fileName: file.fileName,
-      totalRows: file.rawRows.length,
-      processedRows: 0,
-      progress: 0,
-    })),
-    totalRows: files.reduce((sum, file) => sum + file.rawRows.length, 0),
-    processedRows: 0,
-    progress: 0,
-    startedAt: now,
-    updatedAt: now,
-    estimatedSecondsRemaining: null,
-    message: "等待开始导入",
-    cancelRequested: false,
-  };
-
-  completeDataImportJobs.set(job.id, job);
-  return job;
-};
-
-const scheduleJobCleanup = (jobId: string) => {
-  setTimeout(
-    () => {
-      completeDataImportJobs.delete(jobId);
-    },
-    60 * 60 * 1000,
-  ).unref();
-};
-
-const createImportContext = (req: Request, res: Response): ImportContext => {
-  let canceled = false;
-
-  req.on("aborted", () => {
-    canceled = true;
-  });
-
-  res.on("close", () => {
-    if (!res.writableEnded) {
-      canceled = true;
-    }
-  });
-
-  return {
-    isCanceled: () => canceled || res.destroyed,
-  };
-};
-
-const throwIfImportCanceled = (context?: ImportContext) => {
-  if (context?.isCanceled()) {
-    throw new CompleteDataImportCanceledError();
-  }
-};
-
 const getUploadedFiles = (req: Request): Express.Multer.File[] => {
   if (Array.isArray(req.files)) return req.files;
   return [];
 };
 
-const parseOptions = (req: Request): ImportOptions => {
-  const formName = (req.body.formName || DEFAULT_FORM_NAME).toString().trim();
-  const academicYear = (req.body.academicYear || DEFAULT_ACADEMIC_YEAR)
-    .toString()
-    .trim();
-  const participatingCohorts = req.body.participatingCohorts
-    ? req.body.participatingCohorts
-        .toString()
-        .split(",")
-        .map((item: string) => item.trim())
-        .filter(Boolean)
-    : DEFAULT_COHORTS;
-
-  return {
-    formName: formName || DEFAULT_FORM_NAME,
-    academicYear: academicYear || DEFAULT_ACADEMIC_YEAR,
-    participatingCohorts:
-      participatingCohorts.length > 0 ? participatingCohorts : DEFAULT_COHORTS,
-  };
+const parseOptions = (req: Request, files: ParsedCompleteDataFile[]): ImportOptions => {
+  const formName = (req.body.formName || DEFAULT_COMPLETE_DATA_FORM_NAME).toString();
+  const requestedYear = req.body.academicYear?.toString();
+  try {
+    return resolveCompleteDataImportYear(
+      collectDetectedCohorts(files),
+      formName,
+      requestedYear,
+    );
+  } catch (error) {
+    throw new CompleteDataImportBadRequestError((error as Error).message);
+  }
 };
 
 const parseSheetSelections = (req: Request): Map<string, SheetSelection> => {
@@ -407,7 +253,7 @@ const parseClassInfo = (
   classNameRaw: unknown,
 ): { cohort: string; className: string; classNumber: string } | null => {
   const className = classNameRaw == null ? "" : classNameRaw.toString().trim();
-  const match = className.match(/(\d{4})级(\d+)班/);
+  const match = className.match(/((?:19|20)\d{2})\s*级\s*(\d+)\s*班/u);
   if (!match) return null;
 
   return {
@@ -415,6 +261,26 @@ const parseClassInfo = (
     className: normalizeClassName(`${match[2]}班`),
     classNumber: match[2],
   };
+};
+
+const detectCohorts = (rows: any[]): string[] => {
+  const cohorts = new Set<string>();
+
+  rows.forEach((row) => {
+    const className = row["班级名称"]?.toString().trim() || "";
+    const cohort = className.match(/((?:19|20)\d{2})\s*级/u)?.[1];
+    if (cohort) cohorts.add(cohort);
+  });
+
+  return Array.from(cohorts).sort((left, right) => Number(right) - Number(left));
+};
+
+const collectDetectedCohorts = (files: ParsedCompleteDataFile[]): string[] => {
+  const cohorts = new Set<string>();
+  files.forEach((file) =>
+    file.detectedCohorts.forEach((cohort) => cohorts.add(cohort)),
+  );
+  return Array.from(cohorts).sort((left, right) => Number(right) - Number(left));
 };
 
 const mapGender = (value: unknown): "male" | "female" | null => {
@@ -490,6 +356,7 @@ const parseCompleteDataFile = (
     sheetNames: workbook.SheetNames,
     rawSheetName,
     rawRows,
+    detectedCohorts: detectCohorts(rawRows),
     warnings: [],
   };
 };
@@ -523,6 +390,7 @@ const summarizeFile = (parsed: ParsedCompleteDataFile) => {
     fileName: parsed.fileName,
     sheetNames: parsed.sheetNames,
     rawSheetName: parsed.rawSheetName,
+    detectedCohorts: parsed.detectedCohorts,
     totalRows: parsed.rawRows.length,
     classCount: classes.size,
     studentCount: studentIds.size,
@@ -534,6 +402,7 @@ const summarizeFile = (parsed: ParsedCompleteDataFile) => {
 
 const ensureCompleteDataForm = async (
   options: ImportOptions,
+  participatingCohorts: string[],
   transaction: any,
 ) => {
   let form = await PhysicalTestForm.findOne({
@@ -549,7 +418,7 @@ const ensureCompleteDataForm = async (
       {
         formName: options.formName,
         academicYear: options.academicYear,
-        participatingCohorts: options.participatingCohorts,
+        participatingCohorts,
         status: "closed",
         description: "通过完整数据导入创建的体质测试表单",
         createdBy: null,
@@ -557,9 +426,11 @@ const ensureCompleteDataForm = async (
       { transaction },
     );
   } else {
+    const existingCohorts = (form.get('participatingCohorts') as string[]) || [];
     await form.update(
       {
-        participatingCohorts: options.participatingCohorts,
+        participatingCohorts: [...new Set([...existingCohorts, ...participatingCohorts])]
+          .sort((left, right) => Number(right) - Number(left)),
         status: "closed",
       },
       { transaction },
@@ -650,6 +521,7 @@ const importParsedFiles = async (
   context?: ImportContext,
 ) => {
   const transaction = await sequelize.transaction();
+  const participatingCohorts = collectDetectedCohorts(files);
   const totalRows = files.reduce((sum, file) => sum + file.rawRows.length, 0);
   const fileProcessedRows = new Map(files.map((file) => [file.fileKey, 0]));
   const buildFileProgresses = () =>
@@ -692,7 +564,11 @@ const importParsedFiles = async (
       message: "正在准备导入任务",
     });
     throwIfImportCanceled(context);
-    const form = await ensureCompleteDataForm(options, transaction);
+    const form = await ensureCompleteDataForm(
+      options,
+      participatingCohorts,
+      transaction,
+    );
     throwIfImportCanceled(context);
     const formId = form.get("id") as number;
     results.formId = formId;
@@ -869,6 +745,9 @@ const importParsedFiles = async (
             classInfo.cohort,
             options.academicYear,
           );
+          if (studentGradeLevel === null || studentGradeLevel > 3) {
+            throw new Error('该入学级与测试学年不匹配，无法按高中评分标准计算');
+          }
           const applicableItems = plainTestItems.filter(
             (item) => item.genderLimit == null || item.genderLimit === gender,
           );
@@ -957,12 +836,12 @@ export const previewPhysicalTests = async (
       return;
     }
 
-    const options = parseOptions(req);
     const sheetSelections = parseSheetSelections(req);
     const parsedFiles = files.map((file, index) => {
       const fileKey = getUploadedFileKey(file, index);
       return parseCompleteDataFile(file, fileKey, sheetSelections.get(fileKey));
     });
+    const options = parseOptions(req, parsedFiles);
     const summaries = parsedFiles.map(summarizeFile);
 
     res.json({
@@ -1069,12 +948,12 @@ export const importPhysicalTests = async (
       return;
     }
 
-    const options = parseOptions(req);
     const sheetSelections = parseSheetSelections(req);
     const parsedFiles = files.map((file, index) => {
       const fileKey = getUploadedFileKey(file, index);
       return parseCompleteDataFile(file, fileKey, sheetSelections.get(fileKey));
     });
+    const options = parseOptions(req, parsedFiles);
 
     if (req.body.asyncImport?.toString() === "true") {
       const job = createCompleteDataImportJob(parsedFiles);
@@ -1130,45 +1009,4 @@ export const importPhysicalTests = async (
       .status(500)
       .json({ error: "完整体测数据导入失败", message: error.message });
   }
-};
-
-export const getImportJobStatus = async (
-  req: Request,
-  res: Response,
-): Promise<void> => {
-  const job = completeDataImportJobs.get(req.params.jobId);
-  if (!job) {
-    res.status(404).json({ error: "导入任务不存在或已过期" });
-    return;
-  }
-
-  res.json({ data: toJobSnapshot(job) });
-};
-
-export const cancelImportJob = async (
-  req: Request,
-  res: Response,
-): Promise<void> => {
-  const job = completeDataImportJobs.get(req.params.jobId);
-  if (!job) {
-    res.status(404).json({ error: "导入任务不存在或已过期" });
-    return;
-  }
-
-  if (
-    job.status === "completed" ||
-    job.status === "failed" ||
-    job.status === "canceled"
-  ) {
-    res.json({ data: toJobSnapshot(job) });
-    return;
-  }
-
-  job.cancelRequested = true;
-  updateJobProgress(job, {
-    status: "canceling",
-    message: "正在取消导入并回滚事务",
-  });
-
-  res.json({ data: toJobSnapshot(job) });
 };

@@ -2,8 +2,6 @@ import http from '@/utils/http'
 
 export interface CompleteDataImportOptions {
   formName: string
-  academicYear: string
-  participatingCohorts: string[]
   sheetSelections?: Array<{
     fileKey: string
     fileName: string
@@ -27,6 +25,7 @@ export interface CompleteDataImportPreviewFile {
   fileName: string
   sheetNames: string[]
   rawSheetName: string
+  detectedCohorts: string[]
   totalRows: number
   classCount: number
   studentCount: number
@@ -39,7 +38,10 @@ export interface CompleteDataImportPreviewFile {
 }
 
 export interface CompleteDataImportPreview {
-  form: CompleteDataImportOptions
+  form: {
+    formName: string
+    academicYear: string
+  }
   files: CompleteDataImportPreviewFile[]
   totals: {
     rows: number
@@ -111,8 +113,6 @@ const buildFormData = (files: File[], options: CompleteDataImportOptions) => {
   const formData = new FormData()
   files.forEach(file => formData.append('files', file))
   formData.append('formName', options.formName)
-  formData.append('academicYear', options.academicYear)
-  formData.append('participatingCohorts', options.participatingCohorts.join(','))
   if (options.sheetSelections) {
     formData.append('sheetSelections', JSON.stringify(options.sheetSelections))
   }

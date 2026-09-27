@@ -1,39 +1,40 @@
 <template>
   <div class="space-y-6">
     <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900">完整数据导入</h1>
-        <p class="mt-1 text-sm text-gray-600">
-          按入学年导入系统启用前已整理完成的完整体测数据
-        </p>
-      </div>
+      <h1 class="text-2xl font-bold text-gray-900">完整数据导入</h1>
     </div>
 
-    <Card title="导入配置" subtitle="用于生成或更新体测表单、学生、班级、班级关系和体测记录">
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div>
-          <label class="mb-2 block text-sm font-medium text-gray-700">导入表单名称</label>
-          <input v-model="importOptions.formName" type="text" :disabled="isImportLocked"
-            class="w-full rounded-lg border border-gray-300 px-4 py-2 transition-all focus:border-transparent focus:ring-2 focus:ring-blue-500"
-            :class="{ 'cursor-not-allowed bg-gray-100 text-gray-500': isImportLocked }" />
-        </div>
-        <div>
-          <label class="mb-2 block text-sm font-medium text-gray-700">数据学年</label>
-          <input v-model="importOptions.academicYear" type="text" :disabled="isImportLocked"
-            class="w-full rounded-lg border border-gray-300 px-4 py-2 transition-all focus:border-transparent focus:ring-2 focus:ring-blue-500"
-            :class="{ 'cursor-not-allowed bg-gray-100 text-gray-500': isImportLocked }" />
-        </div>
+    <Card title="导入配置">
+      <div>
+        <label class="mb-2 block text-sm font-medium text-gray-700">导入表单名称</label>
+        <input v-model="importOptions.formName" type="text" :disabled="isImportLocked"
+          class="w-full rounded-lg border border-gray-300 px-4 py-2 transition-all focus:border-transparent focus:ring-2 focus:ring-blue-500"
+          :class="{ 'cursor-not-allowed bg-gray-100 text-gray-500': isImportLocked }"
+          @input="resetPreviewState" />
+        <p v-if="previewResult" class="mt-2 text-sm text-gray-600">
+          识别测试学年：{{ previewResult.form.academicYear }} 学年
+        </p>
       </div>
     </Card>
 
     <Card>
       <template #header>
         <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h3 class="text-lg font-semibold text-gray-900">入学年数据</h3>
-            <p class="mt-1 text-sm text-gray-600">
-              三个选项分别对应可能存在的三个入学年，每行独立选择文件和工作表
-            </p>
+          <div class="flex items-center gap-3">
+            <h3 class="text-lg font-semibold text-gray-900">导入文件</h3>
+            <button
+              type="button"
+              class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-blue-600 transition-colors"
+              :class="canAddFileRow && !isImportLocked
+                ? 'bg-blue-50 hover:bg-blue-100'
+                : 'cursor-not-allowed bg-gray-100 text-gray-400 opacity-60'"
+              :disabled="!canAddFileRow || isImportLocked"
+              aria-label="添加导入文件行"
+              title="添加导入文件行"
+              @click="addImportFileRow"
+            >
+              <PlusIcon class="h-5 w-5" />
+            </button>
           </div>
           <div class="w-full rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-blue-800 lg:max-w-xl">
             <div class="flex items-start justify-between gap-4">
@@ -56,120 +57,25 @@
         </div>
       </template>
 
-      <div class="space-y-4">
-        <div v-for="slot in cohortSlots" :key="slot.id"
-          class="relative overflow-hidden rounded-lg border border-gray-200 bg-white">
-          <div class="pointer-events-none absolute inset-y-0 left-0 transition-all duration-300"
-            :class="slotProgressFillClass(slot)" :style="{ width: `${slotProgress(slot).progress}%` }" />
-
-          <div class="relative grid grid-cols-1 gap-4 p-4 lg:grid-cols-[170px_1.15fr_1.35fr_150px] lg:items-start">
-            <div>
-              <div class="flex items-center gap-2">
-                <span
-                  class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-sm font-semibold text-gray-700">
-                  {{ slot.order }}
-                </span>
-                <div>
-                  <h4 class="text-base font-semibold text-gray-900">
-                    {{ slot.cohort || '未指定' }}级
-                  </h4>
-                  <p class="text-xs text-gray-500">入学年</p>
-                </div>
-              </div>
-              <input v-model="slot.cohort" type="text" :disabled="isImportLocked"
-                class="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-all focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                :class="{ 'cursor-not-allowed bg-gray-100 text-gray-500': isImportLocked }" placeholder="例如：2024"
-                @input="resetPreviewState" />
-            </div>
-
-            <div>
-              <div class="mb-2 flex items-center justify-between gap-3">
-                <label class="block text-sm font-medium text-gray-700">上传文档</label>
-                <input :id="`file-${slot.id}`" type="file" accept=".xlsx,.xls" class="hidden" :disabled="isImportLocked"
-                  @change="event => handleSlotFileChange(slot.id, event)" />
-                <label :for="`file-${slot.id}`"
-                  class="inline-flex items-center justify-center rounded-lg bg-gray-200 px-3 py-1.5 text-sm font-medium text-gray-900 transition-colors hover:bg-gray-300"
-                  :class="isImportLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'">
-                  选择文件
-                </label>
-              </div>
-
-              <div class="rounded-lg border border-dashed p-3"
-                :class="slot.file ? 'border-blue-300 bg-blue-50/70' : 'border-gray-300 bg-gray-50'">
-                <div v-if="slot.file">
-                  <div class="truncate text-sm font-medium text-gray-900">{{ slot.file.name }}</div>
-                  <div class="mt-1 text-xs text-gray-500">{{ formatFileSize(slot.file.size) }}</div>
-                </div>
-                <div v-else class="text-sm text-gray-500">未选择文件</div>
-              </div>
-            </div>
-
-            <div>
-              <div class="mb-2 flex items-center justify-between">
-                <label class="block text-sm font-medium text-gray-700">选择表格</label>
-                <span class="text-xs text-gray-500">{{ sheetHint(slot) }}</span>
-              </div>
-
-              <div v-if="previewFileForSlot(slot)" class="grid grid-cols-1 gap-3">
-                <div>
-                  <label class="mb-1 block text-xs font-medium text-gray-500">原始数据表</label>
-                  <select v-model="slot.rawSheetName" :disabled="isImportLocked"
-                    class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    :class="{ 'cursor-not-allowed bg-gray-100 text-gray-500': isImportLocked }">
-                    <option v-for="sheetName in previewFileForSlot(slot)?.sheetNames || []"
-                      :key="`${slot.id}-raw-${sheetName}`" :value="sheetName">
-                      {{ sheetName }}
-                    </option>
-                  </select>
-                </div>
-              </div>
-
-              <div v-else class="grid grid-cols-1 gap-3">
-                <select disabled
-                  class="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-400">
-                  <option>{{ slot.file ? '请先预检查读取工作表' : '请选择 Excel 文件' }}</option>
-                </select>
-              </div>
-
-              <div v-if="previewFileForSlot(slot)" class="mt-3 grid grid-cols-3 gap-2 text-center">
-                <div class="rounded-md bg-gray-50 px-2 py-2">
-                  <div class="text-base font-semibold text-gray-900">{{ previewFileForSlot(slot)?.totalRows }}</div>
-                  <div class="text-xs text-gray-500">行</div>
-                </div>
-                <div class="rounded-md bg-gray-50 px-2 py-2">
-                  <div class="text-base font-semibold text-gray-900">{{ previewFileForSlot(slot)?.studentCount }}</div>
-                  <div class="text-xs text-gray-500">学生</div>
-                </div>
-                <div class="rounded-md bg-gray-50 px-2 py-2">
-                  <div class="text-base font-semibold text-gray-900">{{ previewFileForSlot(slot)?.classCount }}</div>
-                  <div class="text-xs text-gray-500">班级</div>
-                </div>
-              </div>
-
-              <div v-if="previewFileForSlot(slot)?.issues.length"
-                class="mt-3 rounded-md border border-red-200 bg-red-50 p-3">
-                <div class="mb-2 text-sm font-medium text-red-800">问题明细</div>
-                <ul class="space-y-1 text-sm text-red-700">
-                  <li v-for="issue in previewFileForSlot(slot)!.issues.slice(0, 4)"
-                    :key="`${slot.id}-${issue.row}-${issue.message}`">
-                    第 {{ issue.row }} 行：{{ issue.message }}
-                  </li>
-                </ul>
-              </div>
-            </div>
-
-            <div class="flex flex-row items-center justify-between gap-3 lg:flex-col lg:items-end">
-              <span class="inline-flex items-center rounded-md px-2.5 py-1 text-sm font-medium"
-                :class="slotStatusClass(slotProgress(slot).status)">
-                {{ slotProgress(slot).status }}
-              </span>
-              <div class="text-right text-sm">
-                <div class="font-semibold text-gray-900">{{ slotProgress(slot).progress }}%</div>
-                <div class="text-xs text-gray-500">{{ slotProgressLabel(slot) }}</div>
-              </div>
-            </div>
-          </div>
-        </div>
+      <div>
+        <CompleteDataImportFileRow
+          v-for="(row, index) in importFileRows"
+          :key="row.id"
+          :row="row"
+          :index="index"
+          :disabled="isImportLocked"
+          :can-remove="importFileRows.length > 1"
+          :preview-file="previewFileForRow(row)"
+          :progress="rowProgress(row)"
+          :progress-label="rowProgressLabel(row)"
+          :progress-bar-class="rowProgressBarClass(row)"
+          :status-class="rowStatusClass(rowProgress(row).status)"
+          :sheet-hint="sheetHint(row)"
+          :format-file-size="formatFileSize"
+          @file-change="handleFileRowChange"
+          @remove="removeImportFileRow"
+          @update-sheet="updateRowSheet"
+        />
       </div>
     </Card>
 
@@ -177,12 +83,12 @@
       <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div class="grid grid-cols-2 gap-3 md:grid-cols-4 lg:flex-1">
           <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
-            <div class="text-2xl font-bold text-gray-900">{{ selectedSlots.length }}</div>
+            <div class="text-2xl font-bold text-gray-900">{{ selectedRows.length }}</div>
             <div class="mt-1 text-sm text-gray-600">文件</div>
           </div>
           <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
-            <div class="text-2xl font-bold text-gray-900">{{ selectedCohorts.length }}</div>
-            <div class="mt-1 text-sm text-gray-600">入学年</div>
+            <div class="text-2xl font-bold text-gray-900">{{ detectedCohorts.length }}</div>
+            <div class="mt-1 text-sm text-gray-600">识别入学年</div>
           </div>
           <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
             <div class="text-2xl font-bold text-gray-900">{{ previewResult?.totals.rows || 0 }}</div>
@@ -270,18 +176,20 @@ import type {
 import { useToast } from '@/composables/useToast'
 import Card from '@/components/common/Card.vue'
 import Button from '@/components/common/Button.vue'
+import CompleteDataImportFileRow from '@/components/imports/CompleteDataImportFileRow.vue'
 import {
   CheckCircleIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  PlusIcon
 } from '@heroicons/vue/24/outline'
+
+defineOptions({ name: 'CompleteDataImport' })
 
 type FileStatus = '待选择文件' | '待预检' | '待导入' | '上传中' | '解析中' | '导入中' | '导入成功' | '取消导入' | '失败'
 type ImportOperation = 'preview' | 'import' | null
 
-interface CohortSlot {
+interface ImportFileRow {
   id: string
-  order: number
-  cohort: string
   file: File | null
   rawSheetName: string
 }
@@ -294,18 +202,20 @@ interface FileProgressItem {
 }
 
 const toast = useToast()
-const currentYear = new Date().getFullYear()
+const maxImportFiles = 10
+let nextFileRowId = 1
 
-const importOptions = reactive({
-  formName: `${currentYear}学年完整体质测试数据`,
-  academicYear: currentYear.toString()
+const createImportFileRow = (): ImportFileRow => ({
+  id: `import-file-${nextFileRowId++}`,
+  file: null,
+  rawSheetName: ''
 })
 
-const cohortSlots = ref<CohortSlot[]>([
-  { id: 'cohort-a', order: 1, cohort: currentYear.toString(), file: null, rawSheetName: '' },
-  { id: 'cohort-b', order: 2, cohort: (currentYear - 1).toString(), file: null, rawSheetName: '' },
-  { id: 'cohort-c', order: 3, cohort: (currentYear - 2).toString(), file: null, rawSheetName: '' }
-])
+const importOptions = reactive({
+  formName: '完整体质测试数据'
+})
+
+const importFileRows = ref<ImportFileRow[]>([createImportFileRow()])
 
 const previewing = ref(false)
 const importing = ref(false)
@@ -341,37 +251,40 @@ const primaryImportDisabled = computed(() => {
   return selectedFiles.value.length === 0 || !previewResult.value || previewResult.value.totals.issues > 0 || previewing.value
 })
 
-const selectedSlots = computed(() => {
-  return cohortSlots.value.filter(slot => slot.file)
+const selectedRows = computed(() => {
+  return importFileRows.value.filter(row => row.file)
 })
 
 const selectedFiles = computed(() => {
-  return selectedSlots.value.map(slot => slot.file).filter((file): file is File => !!file)
+  return selectedRows.value.map(row => row.file).filter((file): file is File => !!file)
 })
 
-const selectedCohorts = computed(() => {
-  return selectedSlots.value.map(slot => slot.cohort.trim()).filter(Boolean)
+const detectedCohorts = computed(() => {
+  const cohorts = new Set(previewResult.value?.files.flatMap(file => file.detectedCohorts) || [])
+  return Array.from(cohorts).sort((left, right) => Number(right) - Number(left))
 })
+
+const canAddFileRow = computed(() => importFileRows.value.length < maxImportFiles)
 
 const totalSelectedBytes = computed(() => {
   return selectedFiles.value.reduce((sum, file) => sum + file.size, 0)
 })
 
-const currentSlot = computed(() => {
-  if (selectedSlots.value.length === 0) return null
+const currentRow = computed(() => {
+  if (selectedRows.value.length === 0) return null
 
-  const uploading = selectedSlots.value.find(slot => slotProgress(slot).status === '上传中')
+  const uploading = selectedRows.value.find(row => rowProgress(row).status === '上传中')
   if (uploading) return uploading
 
   if (processingOnServer.value) {
-    return selectedSlots.value[0]
+    return selectedRows.value[0]
   }
 
-  return selectedSlots.value.find(slot => slotProgress(slot).status === '待导入') || selectedSlots.value[0]
+  return selectedRows.value.find(row => rowProgress(row).status === '待导入') || selectedRows.value[0]
 })
 
 const currentProgressText = computed(() => {
-  if (!currentSlot.value) {
+  if (!currentRow.value) {
     return '未选择文件'
   }
 
@@ -386,11 +299,10 @@ const currentProgressText = computed(() => {
       return `${file}${row}：${importJob.value.processedRows}/${importJob.value.totalRows} 行`
     }
 
-    return `服务端正在预检查 ${selectedCohorts.value.join('、')} 级数据`
+    return `服务端正在预检查 ${selectedFiles.value.length} 个文件`
   }
 
-  const cohort = currentSlot.value.cohort ? `${currentSlot.value.cohort}级` : '未指定入学年'
-  return `${cohort} ${formatFileSize(uploadedBytes.value)} / ${formatFileSize(totalSelectedBytes.value)}`
+  return `${currentRow.value.file?.name || '当前文件'} ${formatFileSize(uploadedBytes.value)} / ${formatFileSize(totalSelectedBytes.value)}`
 })
 
 const remainingTimeText = computed(() => {
@@ -469,31 +381,49 @@ const cancelButtonText = computed(() => {
   return '取消'
 })
 
-const getSlotFileKey = (slot: CohortSlot, index: number) => {
-  return slot.file ? `${index}:${slot.file.name}:${slot.file.size}` : slot.id
+const getRowFileKey = (row: ImportFileRow, index: number) => {
+  return row.file ? `${index}:${row.file.name}:${row.file.size}` : row.id
 }
 
 const importRequestOptions = computed(() => ({
   formName: importOptions.formName,
-  academicYear: importOptions.academicYear,
-  participatingCohorts: selectedCohorts.value,
-  sheetSelections: selectedSlots.value.map((slot, index) => ({
-    fileKey: getSlotFileKey(slot, index),
-    fileName: slot.file!.name,
-    rawSheetName: slot.rawSheetName
+  sheetSelections: selectedRows.value.map((row, index) => ({
+    fileKey: getRowFileKey(row, index),
+    fileName: row.file!.name,
+    rawSheetName: row.rawSheetName
   }))
 }))
 
-const handleSlotFileChange = (slotId: string, event: Event) => {
+const addImportFileRow = () => {
+  if (isImportLocked.value || !canAddFileRow.value) return
+  importFileRows.value.push(createImportFileRow())
+  resetPreviewState()
+}
+
+const removeImportFileRow = (rowId: string) => {
+  if (isImportLocked.value || importFileRows.value.length <= 1) return
+  importFileRows.value = importFileRows.value.filter(row => row.id !== rowId)
+  resetPreviewState()
+}
+
+const updateRowSheet = (rowId: string, sheetName: string) => {
+  const row = importFileRows.value.find(item => item.id === rowId)
+  if (!row || row.rawSheetName === sheetName) return
+
+  row.rawSheetName = sheetName
+  resetPreviewState()
+}
+
+const handleFileRowChange = (rowId: string, event: Event) => {
   if (isImportLocked.value) return
 
   const input = event.target as HTMLInputElement
   const file = input.files?.[0] || null
-  const slot = cohortSlots.value.find(item => item.id === slotId)
+  const row = importFileRows.value.find(item => item.id === rowId)
 
-  if (slot) {
-    slot.file = file
-    slot.rawSheetName = ''
+  if (row) {
+    row.file = file
+    row.rawSheetName = ''
   }
 
   resetPreviewState()
@@ -515,8 +445,8 @@ const resetPreviewState = () => {
   activeOperation.value = null
 }
 
-const slotProgress = (slot: CohortSlot): FileProgressItem => {
-  if (!slot.file) {
+const rowProgress = (row: ImportFileRow): FileProgressItem => {
+  if (!row.file) {
     return {
       uploaded: 0,
       remaining: 0,
@@ -527,11 +457,11 @@ const slotProgress = (slot: CohortSlot): FileProgressItem => {
 
   if (importJob.value) {
     const fileProgresses = importJob.value.fileProgresses
-    const slotIndex = selectedSlots.value.findIndex(item => item.id === slot.id)
-    const slotFileKey = getSlotFileKey(slot, slotIndex)
-    const fileProgress = fileProgresses.find(file => file.fileKey === slotFileKey)
+    const rowIndex = selectedRows.value.findIndex(item => item.id === row.id)
+    const rowFileKey = getRowFileKey(row, rowIndex)
+    const fileProgress = fileProgresses.find(file => file.fileKey === rowFileKey)
     const progress = fileProgress?.progress || 0
-    const fileIndex = fileProgresses.findIndex(file => file.fileKey === slotFileKey)
+    const fileIndex = fileProgresses.findIndex(file => file.fileKey === rowFileKey)
     const currentFileIndex = importJob.value.currentFileKey
       ? fileProgresses.findIndex(file => file.fileKey === importJob.value?.currentFileKey)
       : -1
@@ -556,28 +486,28 @@ const slotProgress = (slot: CohortSlot): FileProgressItem => {
     }
 
     return {
-      uploaded: slot.file.size,
+      uploaded: row.file.size,
       remaining: 0,
       progress,
       status
     }
   }
 
-  const slotIndex = selectedSlots.value.findIndex(item => item.id === slot.id)
-  const bytesBeforeSlot = selectedSlots.value
-    .slice(0, Math.max(slotIndex, 0))
+  const rowIndex = selectedRows.value.findIndex(item => item.id === row.id)
+  const bytesBeforeRow = selectedRows.value
+    .slice(0, Math.max(rowIndex, 0))
     .reduce((sum, item) => sum + (item.file?.size || 0), 0)
-  const uploaded = Math.min(slot.file.size, Math.max(0, uploadedBytes.value - bytesBeforeSlot))
-  const remaining = Math.max(slot.file.size - uploaded, 0)
-  const progress = slot.file.size > 0 ? Math.round((uploaded / slot.file.size) * 100) : 0
-  let status: FileStatus = previewFileForSlot(slot) ? '待导入' : '待预检'
+  const uploaded = Math.min(row.file.size, Math.max(0, uploadedBytes.value - bytesBeforeRow))
+  const remaining = Math.max(row.file.size - uploaded, 0)
+  const progress = row.file.size > 0 ? Math.round((uploaded / row.file.size) * 100) : 0
+  let status: FileStatus = previewFileForRow(row) ? '待导入' : '待预检'
 
   if (cancelRequested.value) {
     status = '取消导入'
   } else if (busy.value) {
     if (processingOnServer.value && progress === 100) {
       status = activeOperation.value === 'import' ? '导入中' : '解析中'
-    } else if (uploadedBytes.value < bytesBeforeSlot) {
+    } else if (uploadedBytes.value < bytesBeforeRow) {
       status = '待导入'
     } else if (progress < 100) {
       status = '上传中'
@@ -594,34 +524,20 @@ const slotProgress = (slot: CohortSlot): FileProgressItem => {
   }
 }
 
-const slotJobProgress = (slot: CohortSlot) => {
-  if (!slot.file || !importJob.value) return null
-  const slotIndex = selectedSlots.value.findIndex(item => item.id === slot.id)
-  return importJob.value.fileProgresses.find(file => file.fileKey === getSlotFileKey(slot, slotIndex)) || null
-}
-
-const slotProcessedRows = (slot: CohortSlot) => {
-  return slotJobProgress(slot)?.processedRows || 0
-}
-
-const slotTotalRows = (slot: CohortSlot) => {
-  return slotJobProgress(slot)?.totalRows || previewFileForSlot(slot)?.totalRows || 0
-}
-
-const previewFileForSlot = (slot: CohortSlot): CompleteDataImportPreviewFile | null => {
-  if (!slot.file || !previewResult.value) return null
-  const slotIndex = selectedSlots.value.findIndex(item => item.id === slot.id)
-  return previewResult.value.files.find(file => file.fileKey === getSlotFileKey(slot, slotIndex)) || null
+const previewFileForRow = (row: ImportFileRow): CompleteDataImportPreviewFile | null => {
+  if (!row.file || !previewResult.value) return null
+  const rowIndex = selectedRows.value.findIndex(item => item.id === row.id)
+  return previewResult.value.files.find(file => file.fileKey === getRowFileKey(row, rowIndex)) || null
 }
 
 const applyDetectedSheets = () => {
   if (!previewResult.value) return
 
-  cohortSlots.value.forEach(slot => {
-    const previewFile = previewFileForSlot(slot)
+  importFileRows.value.forEach(row => {
+    const previewFile = previewFileForRow(row)
     if (!previewFile) return
 
-    slot.rawSheetName = previewFile.rawSheetName
+    row.rawSheetName = previewFile.rawSheetName
   })
 }
 
@@ -641,17 +557,7 @@ const formatDuration = (secondsValue: number) => {
   return `${seconds} 秒`
 }
 
-const slotRemainingTime = (slot: CohortSlot) => {
-  const progress = slotProgress(slot)
-  if (progress.status === '导入中') return '导入中'
-  if (progress.status === '解析中') return '解析中'
-  if (progress.status === '导入成功') return '导入成功'
-  if (progress.status === '失败') return '失败'
-  if (progress.status !== '上传中') return progress.status
-  return remainingTimeText.value
-}
-
-const slotStatusClass = (status: FileStatus) => {
+const rowStatusClass = (status: FileStatus) => {
   if (status === '上传中' || status === '解析中' || status === '导入中') return 'bg-blue-50 text-blue-700'
   if (status === '导入成功') return importCompleted.value ? 'bg-gray-100 text-gray-600' : 'bg-green-50 text-green-700'
   if (status === '待预检' || status === '待导入') return 'bg-yellow-50 text-yellow-700'
@@ -659,18 +565,18 @@ const slotStatusClass = (status: FileStatus) => {
   return 'bg-gray-100 text-gray-600'
 }
 
-const slotProgressFillClass = (slot: CohortSlot) => {
-  const status = slotProgress(slot).status
+const rowProgressBarClass = (row: ImportFileRow) => {
+  const status = rowProgress(row).status
 
-  if (status === '上传中' || status === '解析中' || status === '导入中') return 'bg-blue-500/10'
-  if (status === '导入成功') return importCompleted.value ? 'bg-gray-400/20' : 'bg-green-500/10'
-  if (status === '待预检' || status === '待导入') return 'bg-yellow-500/10'
-  if (status === '取消导入' || status === '失败') return 'bg-red-500/10'
-  return 'bg-gray-400/10'
+  if (status === '上传中' || status === '解析中' || status === '导入中') return 'bg-blue-500'
+  if (status === '导入成功') return importCompleted.value ? 'bg-gray-400' : 'bg-green-500'
+  if (status === '待预检' || status === '待导入') return 'bg-yellow-500'
+  if (status === '取消导入' || status === '失败') return 'bg-red-500'
+  return 'bg-gray-300'
 }
 
-const slotProgressLabel = (slot: CohortSlot) => {
-  const status = slotProgress(slot).status
+const rowProgressLabel = (row: ImportFileRow) => {
+  const status = rowProgress(row).status
   if (status === '导入中') return '上传完成，导入中'
   if (status === '解析中') return '上传完成，解析中'
   if (status === '导入成功') return '导入成功'
@@ -679,9 +585,9 @@ const slotProgressLabel = (slot: CohortSlot) => {
   return status
 }
 
-const sheetHint = (slot: CohortSlot) => {
-  if (previewFileForSlot(slot)) return '可选择'
-  if (slot.file) return '预检查后可选'
+const sheetHint = (row: ImportFileRow) => {
+  if (previewFileForRow(row)) return '可选择'
+  if (row.file) return '预检查后可选'
   return '未开始'
 }
 
@@ -693,17 +599,6 @@ const validateImportForm = () => {
 
   if (!importOptions.formName.trim()) {
     toast.error('请输入导入表单名称')
-    return false
-  }
-
-  if (!importOptions.academicYear.trim()) {
-    toast.error('请输入数据学年')
-    return false
-  }
-
-  const emptyCohortWithFile = selectedSlots.value.find(slot => !slot.cohort.trim())
-  if (emptyCohortWithFile) {
-    toast.error('已选择文件的入学年必须填写')
     return false
   }
 
@@ -860,6 +755,7 @@ const handlePreviewImport = async () => {
         onUploadProgress: updateUploadProgress
       }
     )
+    importOptions.formName = previewResult.value.form.formName
     applyDetectedSheets()
 
     processingOnServer.value = false
@@ -954,11 +850,7 @@ const handlePrimaryImportAction = () => {
 }
 
 const clearImportState = () => {
-  cohortSlots.value = cohortSlots.value.map(slot => ({
-    ...slot,
-    file: null,
-    rawSheetName: ''
-  }))
+  importFileRows.value = [createImportFileRow()]
   resetPreviewState()
 }
 
