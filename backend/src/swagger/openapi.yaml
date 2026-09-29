@@ -1552,6 +1552,27 @@ paths:
                         items:
                           $ref: '#/components/schemas/PhysicalTestRecord'
 
+  /api/statistics/students/{studentId}/export:
+    get:
+      tags:
+        - 统计分析
+      summary: 导出学生历史体测登记卡
+      description: 按高一、高二、高三填入已有记录；同一年级有多次记录时采用最后保存的一条。
+      parameters:
+        - $ref: '#/components/parameters/StudentId'
+      responses:
+        '200':
+          description: Word 登记卡
+          content:
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: 学生不存在或暂无记录
+        '422':
+          description: 记录缺少必要关联信息或没有可用的高中年级记录
+
   /api/statistics/classes/{classId}/history:
     get:
       tags:

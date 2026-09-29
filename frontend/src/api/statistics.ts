@@ -61,6 +61,22 @@ const statisticsAPI = {
     return http.get(`/statistics/students/${studentId}`)
   },
 
+  async exportStudentHistory(studentId: number): Promise<Blob> {
+    try {
+      return await http.get(`/statistics/students/${studentId}/export`, {
+        responseType: 'blob',
+        timeout: 60000
+      })
+    } catch (error) {
+      const responseData = (error as Error & { responseData?: unknown }).responseData
+      if (responseData instanceof Blob && responseData.type.includes('json')) {
+        const message = JSON.parse(await responseData.text()) as { message?: string }
+        if (message.message) throw new Error(message.message)
+      }
+      throw error
+    }
+  },
+
   /**
    * 获取班级历史体测趋势
    * @param classId 班级ID

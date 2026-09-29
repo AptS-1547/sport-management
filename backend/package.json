@@ -9,8 +9,8 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "npm run build:backend && npm run build:frontend",
-    "build:backend": "tsc -p tsconfig.build.json && node -e \"require('fs').cpSync('src/swagger','dist/swagger',{recursive:true})\"",
-    "build:backend:dev": "tsc -p tsconfig.build.json && node -e \"require('fs').cpSync('src/swagger','dist/swagger',{recursive:true})\"",
+    "build:backend": "tsc -p tsconfig.build.json && node -e \"const fs=require('fs');fs.cpSync('src/swagger','dist/swagger',{recursive:true});fs.cpSync('src/assets','dist/assets',{recursive:true})\"",
+    "build:backend:dev": "tsc -p tsconfig.build.json && node -e \"const fs=require('fs');fs.cpSync('src/swagger','dist/swagger',{recursive:true});fs.cpSync('src/assets','dist/assets',{recursive:true})\"",
     "build:frontend": "cd ../frontend && npm run build -- --mode production && node -e \"const fs=require('fs');fs.rmSync('../backend/dist/frontend',{recursive:true,force:true});fs.mkdirSync('../backend/dist/frontend',{recursive:true});fs.cpSync('dist','../backend/dist/frontend',{recursive:true})\"",
     "build:exe": "npm run build && npm run build:pkg-entry && npm run package:exe",
     "build:pkg-entry": "node scripts/build-pkg-entry.cjs && node scripts/prepare-exe-assets.cjs",
@@ -34,6 +34,7 @@
     "assets": [
       "dist-pkg/frontend/**/*",
       "dist-pkg/swagger/**/*",
+      "dist-pkg/assets/**/*",
       "dist-pkg/database/package.json"
     ]
   },

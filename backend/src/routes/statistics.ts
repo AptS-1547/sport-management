@@ -9,6 +9,7 @@ import {
   getClassHistory
 } from '../controllers/statisticsController.js';
 import { authenticate } from '../middleware/auth.js';
+import { exportPhysicalTestCard } from '../controllers/physicalTestCardController.js';
 
 const router = express.Router();
 
@@ -56,6 +57,9 @@ router.get('/trend', getTrendData);
  * @access  Private
  */
 router.get('/students/:studentId', getStudentHistory);
+
+/** 下载学生历史体测记录的三学年 Word 登记卡。 */
+router.get('/students/:studentId/export', exportPhysicalTestCard);
 
 /**
  * @route   GET /api/statistics/classes/:classId/history

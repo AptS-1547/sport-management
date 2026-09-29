@@ -70,6 +70,7 @@ const buildDatabaseScripts = () => {
 
 copyIfExists(path.join(dist, "frontend"), path.join(pkgDist, "frontend"));
 copyIfExists(path.join(dist, "swagger"), path.join(pkgDist, "swagger"));
+copyIfExists(path.join(dist, "assets"), path.join(pkgDist, "assets"));
 
 buildDatabaseScripts();
 

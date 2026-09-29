@@ -32,7 +32,8 @@ import {
   TrophyIcon,
   ChartBarIcon,
   CalendarIcon,
-  EyeIcon
+  EyeIcon,
+  ArrowDownTrayIcon
 } from '@heroicons/vue/24/outline'
 
 const settingsStore = useSettingsStore()
@@ -60,6 +61,7 @@ const loading = ref(false)
 const studentData = ref<StudentHistoryResponse | null>(null)
 const selectedRecord = ref<StudentTestRecord | null>(null)
 const showRecordModal = ref(false)
+const exportingHistory = ref(false)
 
 // 获取学生ID
 const studentId = computed(() => Number(route.params.id))
@@ -381,6 +383,27 @@ const viewRecordDetail = (record: StudentTestRecord) => {
   showRecordModal.value = true
 }
 
+const exportHistory = async () => {
+  if (!studentData.value || exportingHistory.value) return
+  exportingHistory.value = true
+  try {
+    const file = await statisticsAPI.exportStudentHistory(studentId.value)
+    const url = URL.createObjectURL(file)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${studentData.value.student.name}_体测登记卡.docx`.replace(/[<>:"/\\|?*]/g, '_')
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    toast.success('历史体测登记卡导出成功')
+  } catch (error: any) {
+    toast.error(error.message || '历史体测登记卡导出失败')
+  } finally {
+    exportingHistory.value = false
+  }
+}
+
 // 返回上一页 - 如果从班级详情页来的，返回班级详情页
 const goBack = () => {
   // 尝试从路由历史返回，如果没有历史则跳转到学生管理页
@@ -607,7 +630,23 @@ onMounted(() => {
         </Card>      </div>
 
       <!-- 历史体测记录列表 -->
-      <Card title="历史体测记录">
+      <Card>
+        <template #header>
+          <div class="flex items-center justify-between gap-3">
+            <h3 class="text-lg font-semibold text-gray-900">历史体测记录</h3>
+            <Button
+              variant="ghost"
+              size="sm"
+              :loading="exportingHistory"
+              :disabled="studentData.history.length === 0"
+              aria-label="导出历史体测登记卡"
+              title="导出历史体测登记卡"
+              @click="exportHistory"
+            >
+              <ArrowDownTrayIcon class="h-5 w-5" />
+            </Button>
+          </div>
+        </template>
         <div v-if="studentData.history.length === 0" class="text-center py-12 text-gray-500">
           <p>暂无体测记录</p>
         </div>
@@ -664,9 +703,8 @@ onMounted(() => {
                   </span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm">
-                  <Button variant="secondary" size="sm" @click="viewRecordDetail(record)">
-                    <EyeIcon class="h-4 w-4 mr-1" />
-                    查看详情
+                  <Button variant="ghost" size="sm" :aria-label="`查看${record.formName}详情`" :title="`查看${record.formName}详情`" @click="viewRecordDetail(record)">
+                    <EyeIcon class="h-4 w-4" />
                   </Button>
                 </td>
               </tr>
@@ -687,6 +725,14 @@ onMounted(() => {
         <div class="mb-6">
           <h3 class="text-sm font-medium text-gray-700 mb-3">基本信息</h3>
           <div class="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg">
+            <div>
+              <p class="text-xs text-gray-500">姓名</p>
+              <p class="text-sm font-medium text-gray-900">{{ studentData?.student.name || '-' }}</p>
+            </div>
+            <div>
+              <p class="text-xs text-gray-500">全国学籍号</p>
+              <p class="text-sm font-medium text-gray-900 break-all">{{ studentData?.student.studentIdNational || '-' }}</p>
+            </div>
             <div>
               <p class="text-xs text-gray-500">学年</p>
               <p class="text-sm font-medium text-gray-900">{{ selectedRecord.academicYear }}</p>
